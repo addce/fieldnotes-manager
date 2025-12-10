@@ -1,5 +1,9 @@
 # 田野笔记与访谈记录系统
 
+---
+![Test Status](https://img.shields.io/github/actions/workflow/status/addce/short-link/test.yml?branch=main&label=test&style=flat-square)
+
+---
 ## 项目概述
 专为人类学、社会学等领域研究者设计的田野笔记与访谈记录管理平台。
 
