@@ -1,0 +1,841 @@
+import React from 'react';
+import { render, act, cleanup } from '@testing-library/react';
+import i18n from './i18n';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { zhCN, enUS } from 'date-fns/locale';
+import { useTranslation } from 'react-i18next';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import * as fc from 'fast-check';
+import zhLocale from './i18n/locales/zh.json';
+import enLocale from './i18n/locales/en.json';
+
+const theme = createTheme();
+
+// Helper function to translate keys - bypasses strict TypeScript typing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const translate = (key: string, options?: Record<string, any>): string => {
+  return (i18n.t as Function)(key, options) as string;
+};
+
+// Component that displays date locale information for testing
+const DateLocaleTestComponent: React.FC = () => {
+  const { i18n: i18nInstance } = useTranslation();
+  const dateLocale = i18nInstance.language === 'zh' ? zhCN : enUS;
+  
+  return (
+    <ThemeProvider theme={theme}>
+      <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={dateLocale}>
+        <div data-testid="current-language">{i18nInstance.language}</div>
+        <div data-testid="date-locale-code">{dateLocale.code}</div>
+      </LocalizationProvider>
+    </ThemeProvider>
+  );
+};
+
+// Helper function to generate random language sequences for property testing
+const generateLanguageSequences = (count: number): string[][] => {
+  const sequences: string[][] = [];
+  const languages = ['zh', 'en'];
+  
+  for (let i = 0; i < count; i++) {
+    const length = Math.floor(Math.random() * 10) + 1;
+    const sequence: string[] = [];
+    for (let j = 0; j < length; j++) {
+      sequence.push(languages[Math.floor(Math.random() * languages.length)]);
+    }
+    sequences.push(sequence);
+  }
+  return sequences;
+};
+
+/**
+ * **Feature: frontend-i18n-completion, Property 2: Language switching updates all visible text**
+ * **Validates: Requirements 7.3**
+ * 
+ * For any language change event, the date locale should update to match
+ * the selected language without requiring a page reload.
+ */
+describe('Property 2: Language switching updates all visible text', () => {
+  beforeEach(async () => {
+    // Reset to default language before each test
+    await i18n.changeLanguage('zh');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('should update date locale when language changes - property test with 100 iterations', async () => {
+    const languageSequences = generateLanguageSequences(100);
+    
+    for (const languageSequence of languageSequences) {
+      const { getByTestId, rerender, unmount } = render(<DateLocaleTestComponent />);
+      
+      for (const lang of languageSequence) {
+        // Change language
+        await act(async () => {
+          await i18n.changeLanguage(lang);
+        });
+        
+        // Re-render to pick up the language change
+        rerender(<DateLocaleTestComponent />);
+        
+        // Verify the language was updated
+        const currentLanguage = getByTestId('current-language').textContent;
+        const dateLocaleCode = getByTestId('date-locale-code').textContent;
+        
+        // Property: current language should match what we set
+        expect(currentLanguage).toBe(lang);
+        
+        // Property: date locale code should match the expected locale
+        const expectedLocaleCode = lang === 'zh' ? 'zh-CN' : 'en-US';
+        expect(dateLocaleCode).toBe(expectedLocaleCode);
+      }
+      
+      unmount();
+    }
+  });
+
+  it('should maintain correct date locale mapping for all supported languages - property test with 100 iterations', async () => {
+    const languages = ['zh', 'en'];
+    
+    // Run 100 iterations with random language selection
+    for (let i = 0; i < 100; i++) {
+      const language = languages[Math.floor(Math.random() * languages.length)];
+      
+      // Change to the test language
+      await act(async () => {
+        await i18n.changeLanguage(language);
+      });
+      
+      const { getByTestId, unmount } = render(<DateLocaleTestComponent />);
+      
+      const currentLanguage = getByTestId('current-language').textContent;
+      const dateLocaleCode = getByTestId('date-locale-code').textContent;
+      
+      // Property: language and locale should be consistent
+      if (language === 'zh') {
+        expect(currentLanguage).toBe('zh');
+        expect(dateLocaleCode).toBe('zh-CN');
+      } else {
+        expect(currentLanguage).toBe('en');
+        expect(dateLocaleCode).toBe('en-US');
+      }
+      
+      unmount();
+    }
+  });
+});
+
+
+/**
+ * Helper function to format relative time (extracted from Dashboard.tsx for testing)
+ * This is the same logic used in the Dashboard component
+ */
+const formatRelativeTime = (
+  dateStr: string,
+  language: string,
+  t: (key: string, options?: { count: number }) => string
+): string => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 60) return t('common.timeAgo.minutesAgo', { count: minutes });
+  if (hours < 24) return t('common.timeAgo.hoursAgo', { count: hours });
+  if (days < 7) return t('common.timeAgo.daysAgo', { count: days });
+  return date.toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US');
+};
+
+/**
+ * **Feature: frontend-i18n-completion, Property 3: Relative time formatting respects locale**
+ * **Validates: Requirements 1.3**
+ * 
+ * For any time difference value, the formatted relative time string (e.g., "5 minutes ago")
+ * should match the pattern expected for the currently selected language.
+ */
+describe('Property 3: Relative time formatting respects locale', () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh');
+  });
+
+  it('should format minutes ago correctly for both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 0, max: 59 }), // minutes (0-59)
+        fc.constantFrom('zh', 'en'),
+        async (minutes, language) => {
+          await i18n.changeLanguage(language);
+          
+          // Create a date that is 'minutes' minutes ago
+          const now = new Date();
+          const pastDate = new Date(now.getTime() - minutes * 60000);
+          const dateStr = pastDate.toISOString();
+          
+          const result = formatRelativeTime(dateStr, language, i18n.t.bind(i18n));
+          
+          // Property: result should contain the minute count and match language pattern
+          if (language === 'zh') {
+            expect(result).toBe(`${minutes} 分钟前`);
+          } else {
+            expect(result).toBe(`${minutes} minutes ago`);
+          }
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should format hours ago correctly for both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 23 }), // hours (1-23)
+        fc.constantFrom('zh', 'en'),
+        async (hours, language) => {
+          await i18n.changeLanguage(language);
+          
+          // Create a date that is 'hours' hours ago
+          const now = new Date();
+          const pastDate = new Date(now.getTime() - hours * 3600000);
+          const dateStr = pastDate.toISOString();
+          
+          const result = formatRelativeTime(dateStr, language, i18n.t.bind(i18n));
+          
+          // Property: result should contain the hour count and match language pattern
+          if (language === 'zh') {
+            expect(result).toBe(`${hours} 小时前`);
+          } else {
+            expect(result).toBe(`${hours} hours ago`);
+          }
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should format days ago correctly for both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 6 }), // days (1-6, within a week)
+        fc.constantFrom('zh', 'en'),
+        async (days, language) => {
+          await i18n.changeLanguage(language);
+          
+          // Create a date that is 'days' days ago
+          const now = new Date();
+          const pastDate = new Date(now.getTime() - days * 86400000);
+          const dateStr = pastDate.toISOString();
+          
+          const result = formatRelativeTime(dateStr, language, i18n.t.bind(i18n));
+          
+          // Property: result should contain the day count and match language pattern
+          if (language === 'zh') {
+            expect(result).toBe(`${days} 天前`);
+          } else {
+            expect(result).toBe(`${days} days ago`);
+          }
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should fall back to localized date for dates older than a week - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 7, max: 365 }), // days (7+, older than a week)
+        fc.constantFrom('zh', 'en'),
+        async (days, language) => {
+          await i18n.changeLanguage(language);
+          
+          // Create a date that is 'days' days ago
+          const now = new Date();
+          const pastDate = new Date(now.getTime() - days * 86400000);
+          const dateStr = pastDate.toISOString();
+          
+          const result = formatRelativeTime(dateStr, language, i18n.t.bind(i18n));
+          
+          // Property: result should be a localized date string (not relative time)
+          // It should NOT contain "分钟前", "小时前", "天前", "minutes ago", "hours ago", "days ago"
+          expect(result).not.toContain('分钟前');
+          expect(result).not.toContain('小时前');
+          expect(result).not.toContain('天前');
+          expect(result).not.toContain('minutes ago');
+          expect(result).not.toContain('hours ago');
+          expect(result).not.toContain('days ago');
+          
+          // Property: result should be a valid date string
+          // For zh-CN it will be like "2024/1/15" or "2024年1月15日"
+          // For en-US it will be like "1/15/2024"
+          expect(result.length).toBeGreaterThan(0);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
+
+/**
+ * **Feature: frontend-i18n-completion, Property 4: Enum values are translated correctly**
+ * **Validates: Requirements 2.4**
+ * 
+ * For any enum-like value (record type, status), the displayed label should be
+ * the translated version corresponding to the current language.
+ */
+describe('Property 4: Enum values are translated correctly', () => {
+  // Record type enum values and their translation keys
+  const RECORD_TYPE_VALUES = ['field_note', 'interview', 'observation', 'other'] as const;
+  const RECORD_STATUS_VALUES = ['draft', 'completed', 'archived'] as const;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh');
+  });
+
+  it('should translate record type values correctly for both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...RECORD_TYPE_VALUES),
+        fc.constantFrom('zh', 'en'),
+        async (typeValue, language) => {
+          await i18n.changeLanguage(language);
+          
+          const translationKey = `records.types.${typeValue}`;
+          const translatedValue = translate(translationKey);
+          
+          // Property: translated value should not be the same as the key (meaning translation exists)
+          expect(translatedValue).not.toBe(translationKey);
+          
+          // Property: translated value should be a non-empty string
+          expect(translatedValue.length).toBeGreaterThan(0);
+          
+          // Property: translated value should match expected values based on language
+          const expectedTranslations: Record<string, Record<string, string>> = {
+            zh: {
+              field_note: '田野笔记',
+              interview: '访谈记录',
+              observation: '观察记录',
+              other: '其他',
+            },
+            en: {
+              field_note: 'Field Note',
+              interview: 'Interview',
+              observation: 'Observation',
+              other: 'Other',
+            },
+          };
+          
+          expect(translatedValue).toBe(expectedTranslations[language][typeValue]);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should translate record status values correctly for both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...RECORD_STATUS_VALUES),
+        fc.constantFrom('zh', 'en'),
+        async (statusValue, language) => {
+          await i18n.changeLanguage(language);
+          
+          const translationKey = `records.statuses.${statusValue}`;
+          const translatedValue = translate(translationKey);
+          
+          // Property: translated value should not be the same as the key (meaning translation exists)
+          expect(translatedValue).not.toBe(translationKey);
+          
+          // Property: translated value should be a non-empty string
+          expect(translatedValue.length).toBeGreaterThan(0);
+          
+          // Property: translated value should match expected values based on language
+          const expectedTranslations: Record<string, Record<string, string>> = {
+            zh: {
+              draft: '草稿',
+              completed: '已完成',
+              archived: '已归档',
+            },
+            en: {
+              draft: 'Draft',
+              completed: 'Completed',
+              archived: 'Archived',
+            },
+          };
+          
+          expect(translatedValue).toBe(expectedTranslations[language][statusValue]);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should have consistent translations when switching languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...RECORD_TYPE_VALUES, ...RECORD_STATUS_VALUES),
+        fc.array(fc.constantFrom('zh', 'en'), { minLength: 2, maxLength: 5 }),
+        async (enumValue, languageSequence) => {
+          const isType = RECORD_TYPE_VALUES.includes(enumValue as typeof RECORD_TYPE_VALUES[number]);
+          const translationKey = isType 
+            ? `records.types.${enumValue}` 
+            : `records.statuses.${enumValue}`;
+          
+          for (const language of languageSequence) {
+            await i18n.changeLanguage(language);
+            const translatedValue = translate(translationKey);
+            
+            // Property: translation should always exist and be non-empty
+            expect(translatedValue).not.toBe(translationKey);
+            expect(translatedValue.length).toBeGreaterThan(0);
+            
+            // Property: same language should always produce same translation
+            await i18n.changeLanguage(language);
+            const secondTranslation = translate(translationKey);
+            expect(translatedValue).toBe(secondTranslation);
+          }
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
+
+/**
+ * Helper function to extract all keys from a nested object
+ * Returns a flat array of dot-notation keys (e.g., "common.save", "dashboard.title")
+ */
+const extractKeys = (obj: Record<string, unknown>, prefix = ''): string[] => {
+  const keys: string[] = [];
+  
+  for (const key of Object.keys(obj)) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    const value = obj[key];
+    
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      // Recursively extract keys from nested objects
+      keys.push(...extractKeys(value as Record<string, unknown>, fullKey));
+    } else {
+      // Leaf node - add the key
+      keys.push(fullKey);
+    }
+  }
+  
+  return keys;
+};
+
+/**
+ * **Feature: frontend-i18n-completion, Property 5: Locale files have matching key structures**
+ * **Validates: Requirements 8.3**
+ * 
+ * For any translation key present in zh.json, the same key should exist in en.json,
+ * and vice versa, ensuring complete translation coverage.
+ */
+describe('Property 5: Locale files have matching key structures', () => {
+  // Extract all keys from both locale files
+  const zhKeys = extractKeys(zhLocale as Record<string, unknown>);
+  const enKeys = extractKeys(enLocale as Record<string, unknown>);
+  const zhKeySet = new Set(zhKeys);
+  const enKeySet = new Set(enKeys);
+
+  it('should have matching keys between zh.json and en.json - property test with 100 iterations', () => {
+    // Property: For any key in zh.json, it should exist in en.json
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...zhKeys),
+        (zhKey) => {
+          const existsInEn = enKeySet.has(zhKey);
+          if (!existsInEn) {
+            console.log(`Key "${zhKey}" exists in zh.json but not in en.json`);
+          }
+          return existsInEn;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should have matching keys between en.json and zh.json - property test with 100 iterations', () => {
+    // Property: For any key in en.json, it should exist in zh.json
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...enKeys),
+        (enKey) => {
+          const existsInZh = zhKeySet.has(enKey);
+          if (!existsInZh) {
+            console.log(`Key "${enKey}" exists in en.json but not in zh.json`);
+          }
+          return existsInZh;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should have identical key counts in both locale files', () => {
+    // This is a sanity check - if key counts differ, there's definitely a mismatch
+    expect(zhKeys.length).toBe(enKeys.length);
+  });
+
+  it('should have all zh keys present in en - exhaustive check', () => {
+    const missingInEn = zhKeys.filter(key => !enKeySet.has(key));
+    if (missingInEn.length > 0) {
+      console.log('Keys missing in en.json:', missingInEn);
+    }
+    expect(missingInEn).toEqual([]);
+  });
+
+  it('should have all en keys present in zh - exhaustive check', () => {
+    const missingInZh = enKeys.filter(key => !zhKeySet.has(key));
+    if (missingInZh.length > 0) {
+      console.log('Keys missing in zh.json:', missingInZh);
+    }
+    expect(missingInZh).toEqual([]);
+  });
+});
+
+
+/**
+ * **Feature: frontend-i18n-completion, Property 1: All UI text uses translation keys**
+ * **Validates: Requirements 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 6.2, 6.3**
+ * 
+ * For any page or component in the application, all user-visible text should be rendered
+ * through the t() function from useTranslation, ensuring no hardcoded strings exist.
+ * 
+ * This test verifies that all translation keys used in the application exist in both
+ * locale files and return valid translated strings.
+ */
+describe('Property 1: All UI text uses translation keys', () => {
+  // Common translation keys used across the application
+  const COMMON_KEYS = [
+    'common.save', 'common.cancel', 'common.delete', 'common.edit', 'common.create',
+    'common.search', 'common.filter', 'common.export', 'common.close', 'common.confirm',
+    'common.loading', 'common.noData', 'common.success', 'common.error', 'common.all',
+    'common.actions', 'common.status', 'common.type', 'common.date', 'common.time',
+    'common.description', 'common.notes', 'common.view', 'common.back', 'common.confirmDelete',
+    'common.deleteWarning', 'common.timeAgo.minutesAgo', 'common.timeAgo.hoursAgo', 'common.timeAgo.daysAgo',
+  ];
+
+  const DASHBOARD_KEYS = [
+    'dashboard.title', 'dashboard.overview', 'dashboard.quickActions', 'dashboard.recentActivity',
+    'dashboard.startRecording', 'dashboard.recordCount', 'dashboard.welcomeMessage',
+    'dashboard.noActivity', 'dashboard.firstNoteHint', 'dashboard.fieldRecords',
+    'dashboard.participants', 'dashboard.fields', 'dashboard.tags',
+    'dashboard.newFieldRecord', 'dashboard.newFieldRecordDesc',
+    'dashboard.addParticipant', 'dashboard.addParticipantDesc',
+    'dashboard.createField', 'dashboard.createFieldDesc',
+    'dashboard.manageTags', 'dashboard.manageTagsDesc', 'dashboard.emptyQuote',
+  ];
+
+  const RECORDS_KEYS = [
+    'records.title', 'records.newRecord', 'records.editRecord', 'records.recordTitle',
+    'records.recordType', 'records.recordStatus', 'records.searchPlaceholder',
+    'records.expandFilter', 'records.collapseFilter', 'records.currentFilter',
+    'records.exportData', 'records.createSuccess', 'records.updateSuccess', 'records.deleteSuccess',
+    'records.types.field_note', 'records.types.interview', 'records.types.observation', 'records.types.other',
+    'records.statuses.draft', 'records.statuses.completed', 'records.statuses.archived',
+  ];
+
+  const FIELDS_KEYS = [
+    'fields.management', 'fields.newField', 'fields.editField', 'fields.region',
+    'fields.location', 'fields.subField', 'fields.address', 'fields.basicInfo',
+    'fields.geoInfo', 'fields.descInfo', 'fields.timeAttrs', 'fields.regionFilter',
+    'fields.allRegions', 'fields.coordinatesSet', 'fields.coordinatesNotSet',
+    'fields.createSuccess', 'fields.updateSuccess', 'fields.deleteSuccess',
+  ];
+
+  const PARTICIPANTS_KEYS = [
+    'participants.management', 'participants.addParticipant', 'participants.nameOrCode',
+    'participants.gender', 'participants.ageRange', 'participants.occupation',
+    'participants.education', 'participants.anonymized', 'participants.sensitivityLevel',
+    'participants.genders.male', 'participants.genders.female', 'participants.genders.other',
+    'participants.sensitivityLevels.low', 'participants.sensitivityLevels.normal',
+    'participants.sensitivityLevels.high', 'participants.sensitivityLevels.confidential',
+    'participants.ageRanges.18-25', 'participants.ageRanges.26-35', 'participants.ageRanges.36-45',
+    'participants.educationLevels.primary', 'participants.educationLevels.bachelor',
+  ];
+
+  const TAGS_KEYS = [
+    'tags.management', 'tags.categoryManagement', 'tags.tagList', 'tags.newCategory',
+    'tags.categoryFilter', 'tags.allCategories', 'tags.newTag', 'tags.tagName',
+    'tags.categoryTypes.theme', 'tags.categoryTypes.content', 'tags.categoryTypes.analysis',
+    'tags.createCategorySuccess', 'tags.createTagSuccess',
+  ];
+
+  const EXPORT_KEYS = [
+    'export.title', 'export.selectFormat', 'export.selectedRecords', 'export.records',
+    'export.exportAll', 'export.startExport', 'export.exporting',
+    'export.formats.csv', 'export.formats.csvDesc',
+    'export.formats.json', 'export.formats.jsonDesc',
+    'export.formats.markdown', 'export.formats.markdownDesc',
+  ];
+
+  const IMAGES_KEYS = [
+    'images.uploadTitle', 'images.uploadHint', 'images.saveFirst',
+    'images.uploadedImages', 'images.noImages', 'images.zoomIn',
+    'images.unsupportedFormat', 'images.fileTooLarge', 'images.uploading', 'images.uploadFailed',
+  ];
+
+  const PROFILE_KEYS = [
+    'profile.title', 'profile.personalInfo', 'profile.changePassword',
+    'profile.currentPassword', 'profile.newPassword', 'profile.confirmPassword',
+    'profile.saveChanges', 'profile.updateSuccess', 'profile.passwordChangeSuccess',
+    'profile.passwordMismatch', 'profile.passwordTooShort',
+  ];
+
+  const ALL_KEYS = [
+    ...COMMON_KEYS,
+    ...DASHBOARD_KEYS,
+    ...RECORDS_KEYS,
+    ...FIELDS_KEYS,
+    ...PARTICIPANTS_KEYS,
+    ...TAGS_KEYS,
+    ...EXPORT_KEYS,
+    ...IMAGES_KEYS,
+    ...PROFILE_KEYS,
+  ];
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh');
+  });
+
+  it('should have all translation keys return valid strings in both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...ALL_KEYS),
+        fc.constantFrom('zh', 'en'),
+        async (key, language) => {
+          await i18n.changeLanguage(language);
+          
+          const translatedValue = translate(key);
+          
+          // Property: translated value should not be the same as the key (meaning translation exists)
+          expect(translatedValue).not.toBe(key);
+          
+          // Property: translated value should be a non-empty string
+          expect(typeof translatedValue).toBe('string');
+          expect(translatedValue.length).toBeGreaterThan(0);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should have consistent translations when switching languages multiple times - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...ALL_KEYS),
+        fc.array(fc.constantFrom('zh', 'en'), { minLength: 2, maxLength: 5 }),
+        async (key, languageSequence) => {
+          const translations: Record<string, string> = {};
+          
+          for (const language of languageSequence) {
+            await i18n.changeLanguage(language);
+            const translatedValue = translate(key);
+            
+            // Store or verify translation
+            if (translations[language]) {
+              // Property: same language should always produce same translation
+              expect(translatedValue).toBe(translations[language]);
+            } else {
+              translations[language] = translatedValue;
+            }
+            
+            // Property: translation should exist
+            expect(translatedValue).not.toBe(key);
+          }
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should have different translations for different languages - property test with 100 iterations', async () => {
+    // Keys that should have different translations in zh vs en
+    const keysWithDifferentTranslations = [
+      'common.save', 'common.cancel', 'common.delete', 'common.edit',
+      'dashboard.title', 'records.title', 'fields.management', 'participants.management',
+      'tags.management', 'export.title', 'profile.title',
+    ];
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...keysWithDifferentTranslations),
+        async (key) => {
+          await i18n.changeLanguage('zh');
+          const zhTranslation = translate(key);
+          
+          await i18n.changeLanguage('en');
+          const enTranslation = translate(key);
+          
+          // Property: zh and en translations should be different
+          expect(zhTranslation).not.toBe(enTranslation);
+          
+          // Property: both should be valid strings
+          expect(zhTranslation.length).toBeGreaterThan(0);
+          expect(enTranslation.length).toBeGreaterThan(0);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
+
+/**
+ * **Feature: frontend-i18n-completion, Property 6: Interpolation values render correctly**
+ * **Validates: Requirements 8.2**
+ * 
+ * For any translation key that uses interpolation (e.g., {{count}}), the dynamic value
+ * should be correctly inserted into the translated string.
+ */
+describe('Property 6: Interpolation values render correctly', () => {
+  // Keys that use interpolation
+  const INTERPOLATION_KEYS = [
+    { key: 'common.timeAgo.minutesAgo', param: 'count', type: 'number' },
+    { key: 'common.timeAgo.hoursAgo', param: 'count', type: 'number' },
+    { key: 'common.timeAgo.daysAgo', param: 'count', type: 'number' },
+    { key: 'tags.tagCount', param: 'count', type: 'number' },
+    { key: 'images.maxImages', param: 'max', type: 'number' },
+    { key: 'records.foundRecords', param: 'count', type: 'number' },
+  ];
+
+  beforeEach(async () => {
+    await i18n.changeLanguage('zh');
+  });
+
+  it('should correctly interpolate numeric values in both languages - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...INTERPOLATION_KEYS),
+        fc.integer({ min: 0, max: 1000 }),
+        fc.constantFrom('zh', 'en'),
+        async (keyConfig, value, language) => {
+          await i18n.changeLanguage(language);
+          
+          const interpolationParams = { [keyConfig.param]: value };
+          const translatedValue = translate(keyConfig.key, interpolationParams);
+          
+          // Property: translated value should contain the interpolated number
+          expect(translatedValue).toContain(String(value));
+          
+          // Property: translated value should not contain the placeholder syntax
+          expect(translatedValue).not.toContain(`{{${keyConfig.param}}}`);
+          
+          // Property: translated value should be a non-empty string
+          expect(translatedValue.length).toBeGreaterThan(0);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should handle edge case values for interpolation - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...INTERPOLATION_KEYS),
+        fc.oneof(
+          fc.constant<number>(0),
+          fc.constant<number>(1),
+          fc.constant<number>(100),
+          fc.constant<number>(999),
+          fc.integer({ min: 0, max: 10000 })
+        ),
+        fc.constantFrom('zh', 'en'),
+        async (keyConfig, value, language) => {
+          await i18n.changeLanguage(language);
+          
+          const interpolationParams = { [keyConfig.param]: value };
+          const translatedValue = translate(keyConfig.key, interpolationParams);
+          
+          // Property: should handle all numeric values correctly
+          expect(translatedValue).toContain(String(value));
+          expect(translatedValue).not.toBe(keyConfig.key);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should produce consistent interpolation results - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...INTERPOLATION_KEYS),
+        fc.integer({ min: 0, max: 1000 }),
+        fc.constantFrom('zh', 'en'),
+        async (keyConfig, value, language) => {
+          await i18n.changeLanguage(language);
+          
+          const interpolationParams = { [keyConfig.param]: value };
+          
+          // Call translation multiple times
+          const result1 = translate(keyConfig.key, interpolationParams);
+          const result2 = translate(keyConfig.key, interpolationParams);
+          const result3 = translate(keyConfig.key, interpolationParams);
+          
+          // Property: same input should always produce same output
+          expect(result1).toBe(result2);
+          expect(result2).toBe(result3);
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('should handle pagination display interpolation correctly - property test with 100 iterations', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 100 }),  // from
+        fc.integer({ min: 1, max: 100 }),  // to
+        fc.integer({ min: 1, max: 1000 }), // count
+        fc.constantFrom('zh', 'en'),
+        async (from, to, count, language) => {
+          await i18n.changeLanguage(language);
+          
+          const translatedValue = translate('records.paginationDisplay', { from, to, count });
+          
+          // Property: should contain all three values
+          expect(translatedValue).toContain(String(from));
+          expect(translatedValue).toContain(String(to));
+          expect(translatedValue).toContain(String(count));
+          
+          // Property: should not contain placeholder syntax
+          expect(translatedValue).not.toContain('{{from}}');
+          expect(translatedValue).not.toContain('{{to}}');
+          expect(translatedValue).not.toContain('{{count}}');
+          
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
