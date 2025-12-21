@@ -4,6 +4,9 @@
 ![Test Status](https://img.shields.io/github/actions/workflow/status/addce/short-link/test.yml?branch=main&label=test&style=flat-square)
 
 ---
+## 初始账号密码
+账号:admin
+密码:admin123
 ## 项目概述
 专为人类学、社会学等领域研究者设计的田野笔记与访谈记录管理平台。
 
