@@ -68,8 +68,8 @@ For detailed development documentation, please refer to the `docs/` directory.
 - Site information management
 - Multi-dimensional search and filtering
 - Statistical analysis capabilities
-- 图片上传支持
-- 数据导出功能
+- Image upload support
+- Data export functionality
 
 ## License
 MIT License
