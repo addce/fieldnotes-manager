@@ -1,76 +1,75 @@
-# 田野笔记与访谈记录系统
+# Field Notes and Interview Recording System
 
 ---
 ![Test Status](https://img.shields.io/github/actions/workflow/status/addce/short-link/test.yml?branch=main&label=test&style=flat-square)
 
 ---
-## 初始账号密码
-账号:admin
-密码:admin123
-## 项目概述
-专为人类学、社会学等领域研究者设计的田野笔记与访谈记录管理平台。
+## Initial account credentials
+Account:admin
+Password:admin123
+## Project Overview
+A field notes and interview record management platform specifically designed for researchers in anthropology, sociology, and related fields.。
 
-## 技术栈
-- **后端**: FastAPI (Python)
-- **前端**: React + Material UI
-- **数据库**: MySQL 8.0+
-- **开发环境**: VS Code
+## Technology Stack
+- **Backend**: FastAPI (Python)
+- **Frontend**: React + Material UI
+- **Database**: MySQL 8.0+
+- **Development Environment**: VS Code
 
-## 项目结构
+## Project Structure
 ```
-田野笔记系统/
-├── backend/          # 后端API服务
-│   ├── app/          # 应用核心代码
+Field Notes System/
+├── backend/          # Backend API services
+│   ├── app/          # Application core code
 │   ├── requirements.txt
 │   ├── main.py
 │   └── ...
-├── frontend/         # 前端React应用
+├── frontend/         # Frontend React application
 │   ├── src/
 │   ├── public/
 │   ├── package.json
 │   └── ...
-├── docs/            # 项目文档
-├── scripts/         # 部署和工具脚本
+├── docs/            # Project documentation
+├── scripts/         # Deployment and utility scripts
 └── README.md
-```
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Environment Requirements
 - Python 3.8+
 - Node.js 16+
 - MySQL 8.0+
 
-### 后端启动
+### Start Backend
 ```bash
 cd backend
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-### 前端启动
+### Frontend Startup
 ```bash
 cd frontend
 npm install
 npm start
 ```
 
-### 数据库配置
-1. 创建数据库: `fieldwork_notes`
-2. 配置连接信息 (默认: root/root)
-3. 运行数据库迁移脚本
+### Database Configuration
+1. Create database: `fieldwork_notes`
+2. Configure connection details (default: root/root)
+3. Run database migration scripts
 
-## 开发指南
-详细的开发文档请参考 `docs/` 目录。
+## Development Guide
+For detailed development documentation, please refer to the `docs/` directory.
 
-## 功能特性
-- 田野笔记创建与管理
-- 参与者信息管理
-- 场域信息管理
-- 多维度检索与过滤
-- 统计分析功能
+## Features
+- Field note creation and management
+- Participant information management
+- Site information management
+- Multi-dimensional search and filtering
+- Statistical analysis capabilities
 - 图片上传支持
 - 数据导出功能
 
-## 许可证
+## License
 MIT License
